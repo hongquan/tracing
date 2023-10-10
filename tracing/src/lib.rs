@@ -19,7 +19,7 @@
 //! The `tracing` crate provides the APIs necessary for instrumenting libraries
 //! and applications to emit trace data.
 //!
-//! *Compiler support: [requires `rustc` 1.49+][msrv]*
+//! *Compiler support: [requires `rustc` 1.56+][msrv]*
 //!
 //! [msrv]: #supported-rust-versions
 //! # Core Concepts
@@ -118,8 +118,6 @@
 //! [dependencies]
 //! tracing = "0.1"
 //! ```
-//!
-//! *Compiler support: [requires `rustc` 1.42+][msrv]*
 //!
 //! ## Recording Spans and Events
 //!
@@ -729,6 +727,8 @@
 //!    in [bunyan] format, enriched with timing information.
 //!  - [`tracing-wasm`] provides a `Subscriber`/`Layer` implementation that reports
 //!    events and spans via browser `console.log` and [User Timing API (`window.performance`)].
+//!  - [`tracing-web`] provides a layer implementation of level-aware logging of events
+//!    to web browsers' `console.*` and span events to the [User Timing API (`window.performance`)].
 //!  - [`tide-tracing`] provides a [tide] middleware to trace all incoming requests and responses.
 //!  - [`test-log`] takes care of initializing `tracing` for tests, based on
 //!    environment variables with an `env_logger` compatible syntax.
@@ -745,6 +745,8 @@
 //!  - [`tracing-forest`] provides a subscriber that preserves contextual coherence by
 //!    grouping together logs from the same spans during writing.
 //!  - [`tracing-loki`] provides a layer for shipping logs to [Grafana Loki].
+//!  - [`tracing-logfmt`] provides a layer that formats events and spans into the logfmt format.
+//!  - [`reqwest-tracing`] provides a middleware to trace [`reqwest`] HTTP requests.
 //!
 //! If you're the maintainer of a `tracing` ecosystem crate not listed above,
 //! please let us know! We'd love to add your project to the list!
@@ -762,6 +764,7 @@
 //! [`tracing-bunyan-formatter`]: https://crates.io/crates/tracing-bunyan-formatter
 //! [bunyan]: https://github.com/trentm/node-bunyan
 //! [`tracing-wasm`]: https://docs.rs/tracing-wasm
+//! [`tracing-web`]: https://docs.rs/tracing-web
 //! [User Timing API (`window.performance`)]: https://developer.mozilla.org/en-US/docs/Web/API/User_Timing_API
 //! [`tide-tracing`]: https://crates.io/crates/tide-tracing
 //! [tide]: https://crates.io/crates/tide
@@ -781,6 +784,9 @@
 //! [`tracing-forest`]: https://crates.io/crates/tracing-forest
 //! [`tracing-loki`]: https://crates.io/crates/tracing-loki
 //! [Grafana Loki]: https://grafana.com/oss/loki/
+//! [`tracing-logfmt`]: https://crates.io/crates/tracing-logfmt
+//! [`reqwest-tracing`]: https://crates.io/crates/reqwest-tracing
+//! [`reqwest`]: https://crates.io/crates/reqwest
 //!
 //! <pre class="ignore" style="white-space:normal;font:inherit;">
 //!     <strong>Note</strong>: Some of these ecosystem crates are currently
@@ -811,7 +817,7 @@
 //!
 //!   ```toml
 //!   [dependencies]
-//!   tracing = { version = "0.1.34", default-features = false }
+//!   tracing = { version = "0.1.37", default-features = false }
 //!   ```
 //!
 //! <pre class="ignore" style="white-space:normal;font:inherit;">
@@ -853,14 +859,14 @@
 //! ## Supported Rust Versions
 //!
 //! Tracing is built against the latest stable release. The minimum supported
-//! version is 1.49. The current Tracing version is not guaranteed to build on
+//! version is 1.56. The current Tracing version is not guaranteed to build on
 //! Rust versions earlier than the minimum supported version.
 //!
 //! Tracing follows the same compiler support policies as the rest of the Tokio
 //! project. The current stable Rust compiler and the three most recent minor
 //! versions before it will always be supported. For example, if the current
-//! stable compiler version is 1.45, the minimum supported version will not be
-//! increased past 1.42, three minor versions prior. Increasing the minimum
+//! stable compiler version is 1.69, the minimum supported version will not be
+//! increased past 1.66, three minor versions prior. Increasing the minimum
 //! supported compiler version is not considered a semver breaking change as
 //! long as doing so complies with this policy.
 //!
@@ -894,7 +900,6 @@
 //! [flags]: #crate-feature-flags
 #![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(docsrs, feature(doc_cfg), deny(rustdoc::broken_intra_doc_links))]
-#![doc(html_root_url = "https://docs.rs/tracing/0.1.34")]
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/tokio-rs/tracing/master/assets/logo-type.png",
     issue_tracker_base_url = "https://github.com/tokio-rs/tracing/issues/"
@@ -905,7 +910,6 @@
     rust_2018_idioms,
     unreachable_pub,
     bad_style,
-    const_err,
     dead_code,
     improper_ctypes,
     non_shorthand_field_patterns,
@@ -967,13 +971,8 @@ pub mod subscriber;
 #[doc(hidden)]
 pub mod __macro_support {
     pub use crate::callsite::Callsite;
-    use crate::stdlib::{
-        fmt,
-        sync::atomic::{AtomicUsize, Ordering},
-    };
     use crate::{subscriber::Interest, Metadata};
     pub use core::concat;
-    use tracing_core::Once;
 
     /// Callsite implementation used by macro-generated code.
     ///
@@ -983,138 +982,70 @@ pub mod __macro_support {
     /// by the `tracing` macros, but it is not part of the stable versioned API.
     /// Breaking changes to this module may occur in small-numbered versions
     /// without warning.
-    pub struct MacroCallsite {
-        interest: AtomicUsize,
-        meta: &'static Metadata<'static>,
-        registration: Once,
+    pub use tracing_core::callsite::DefaultCallsite as MacroCallsite;
+
+    /// /!\ WARNING: This is *not* a stable API! /!\
+    /// This function, and all code contained in the `__macro_support` module, is
+    /// a *private* API of `tracing`. It is exposed publicly because it is used
+    /// by the `tracing` macros, but it is not part of the stable versioned API.
+    /// Breaking changes to this module may occur in small-numbered versions
+    /// without warning.
+    pub fn __is_enabled(meta: &Metadata<'static>, interest: Interest) -> bool {
+        interest.is_always() || crate::dispatcher::get_default(|default| default.enabled(meta))
     }
 
-    impl MacroCallsite {
-        /// Returns a new `MacroCallsite` with the specified `Metadata`.
-        ///
-        /// /!\ WARNING: This is *not* a stable API! /!\
-        /// This method, and all code contained in the `__macro_support` module, is
-        /// a *private* API of `tracing`. It is exposed publicly because it is used
-        /// by the `tracing` macros, but it is not part of the stable versioned API.
-        /// Breaking changes to this module may occur in small-numbered versions
-        /// without warning.
-        pub const fn new(meta: &'static Metadata<'static>) -> Self {
-            Self {
-                interest: AtomicUsize::new(0xDEAD),
-                meta,
-                registration: Once::new(),
-            }
-        }
-
-        /// Registers this callsite with the global callsite registry.
-        ///
-        /// If the callsite is already registered, this does nothing.
-        ///
-        /// /!\ WARNING: This is *not* a stable API! /!\
-        /// This method, and all code contained in the `__macro_support` module, is
-        /// a *private* API of `tracing`. It is exposed publicly because it is used
-        /// by the `tracing` macros, but it is not part of the stable versioned API.
-        /// Breaking changes to this module may occur in small-numbered versions
-        /// without warning.
-        #[inline(never)]
-        // This only happens once (or if the cached interest value was corrupted).
-        #[cold]
-        pub fn register(&'static self) -> Interest {
-            self.registration
-                .call_once(|| crate::callsite::register(self));
-            match self.interest.load(Ordering::Relaxed) {
-                0 => Interest::never(),
-                2 => Interest::always(),
-                _ => Interest::sometimes(),
-            }
-        }
-
-        /// Returns the callsite's cached Interest, or registers it for the
-        /// first time if it has not yet been registered.
-        ///
-        /// /!\ WARNING: This is *not* a stable API! /!\
-        /// This method, and all code contained in the `__macro_support` module, is
-        /// a *private* API of `tracing`. It is exposed publicly because it is used
-        /// by the `tracing` macros, but it is not part of the stable versioned API.
-        /// Breaking changes to this module may occur in small-numbered versions
-        /// without warning.
-        #[inline]
-        pub fn interest(&'static self) -> Interest {
-            match self.interest.load(Ordering::Relaxed) {
-                0 => Interest::never(),
-                1 => Interest::sometimes(),
-                2 => Interest::always(),
-                _ => self.register(),
-            }
-        }
-
-        pub fn is_enabled(&self, interest: Interest) -> bool {
-            interest.is_always()
-                || crate::dispatcher::get_default(|default| default.enabled(self.meta))
-        }
-
-        #[inline]
-        #[cfg(feature = "log")]
-        pub fn disabled_span(&self) -> crate::Span {
-            crate::Span::new_disabled(self.meta)
-        }
-
-        #[inline]
-        #[cfg(not(feature = "log"))]
-        pub fn disabled_span(&self) -> crate::Span {
-            crate::Span::none()
-        }
-
-        #[cfg(feature = "log")]
-        pub fn log(
-            &self,
-            logger: &'static dyn log::Log,
-            log_meta: log::Metadata<'_>,
-            values: &tracing_core::field::ValueSet<'_>,
-        ) {
-            let meta = self.metadata();
-            logger.log(
-                &crate::log::Record::builder()
-                    .file(meta.file())
-                    .module_path(meta.module_path())
-                    .line(meta.line())
-                    .metadata(log_meta)
-                    .args(format_args!(
-                        "{}",
-                        crate::log::LogValueSet {
-                            values,
-                            is_first: true
-                        }
-                    ))
-                    .build(),
-            );
-        }
+    /// /!\ WARNING: This is *not* a stable API! /!\
+    /// This function, and all code contained in the `__macro_support` module, is
+    /// a *private* API of `tracing`. It is exposed publicly because it is used
+    /// by the `tracing` macros, but it is not part of the stable versioned API.
+    /// Breaking changes to this module may occur in small-numbered versions
+    /// without warning.
+    #[inline]
+    #[cfg(feature = "log")]
+    pub fn __disabled_span(meta: &'static Metadata<'static>) -> crate::Span {
+        crate::Span::new_disabled(meta)
     }
 
-    impl Callsite for MacroCallsite {
-        fn set_interest(&self, interest: Interest) {
-            let interest = match () {
-                _ if interest.is_never() => 0,
-                _ if interest.is_always() => 2,
-                _ => 1,
-            };
-            self.interest.store(interest, Ordering::SeqCst);
-        }
-
-        #[inline(always)]
-        fn metadata(&self) -> &Metadata<'static> {
-            self.meta
-        }
+    /// /!\ WARNING: This is *not* a stable API! /!\
+    /// This function, and all code contained in the `__macro_support` module, is
+    /// a *private* API of `tracing`. It is exposed publicly because it is used
+    /// by the `tracing` macros, but it is not part of the stable versioned API.
+    /// Breaking changes to this module may occur in small-numbered versions
+    /// without warning.
+    #[inline]
+    #[cfg(not(feature = "log"))]
+    pub fn __disabled_span(_: &'static Metadata<'static>) -> crate::Span {
+        crate::Span::none()
     }
 
-    impl fmt::Debug for MacroCallsite {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            f.debug_struct("MacroCallsite")
-                .field("interest", &self.interest)
-                .field("meta", &self.meta)
-                .field("registration", &self.registration)
-                .finish()
-        }
+    /// /!\ WARNING: This is *not* a stable API! /!\
+    /// This function, and all code contained in the `__macro_support` module, is
+    /// a *private* API of `tracing`. It is exposed publicly because it is used
+    /// by the `tracing` macros, but it is not part of the stable versioned API.
+    /// Breaking changes to this module may occur in small-numbered versions
+    /// without warning.
+    #[cfg(feature = "log")]
+    pub fn __tracing_log(
+        meta: &Metadata<'static>,
+        logger: &'static dyn log::Log,
+        log_meta: log::Metadata<'_>,
+        values: &tracing_core::field::ValueSet<'_>,
+    ) {
+        logger.log(
+            &crate::log::Record::builder()
+                .file(meta.file())
+                .module_path(meta.module_path())
+                .line(meta.line())
+                .metadata(log_meta)
+                .args(format_args!(
+                    "{}",
+                    crate::log::LogValueSet {
+                        values,
+                        is_first: true
+                    }
+                ))
+                .build(),
+        );
     }
 }
 

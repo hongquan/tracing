@@ -32,7 +32,7 @@
 //! The `tracing` crate provides the APIs necessary for instrumenting
 //! libraries and applications to emit trace data.
 //!
-//! *Compiler support: [requires `rustc` 1.49+][msrv]*
+//! *Compiler support: [requires `rustc` 1.56+][msrv]*
 //!
 //! [msrv]: #supported-rust-versions
 //!
@@ -142,20 +142,19 @@
 //! ## Supported Rust Versions
 //!
 //! Tracing is built against the latest stable release. The minimum supported
-//! version is 1.49. The current Tracing version is not guaranteed to build on
+//! version is 1.56. The current Tracing version is not guaranteed to build on
 //! Rust versions earlier than the minimum supported version.
 //!
 //! Tracing follows the same compiler support policies as the rest of the Tokio
 //! project. The current stable Rust compiler and the three most recent minor
 //! versions before it will always be supported. For example, if the current
-//! stable compiler version is 1.45, the minimum supported version will not be
-//! increased past 1.42, three minor versions prior. Increasing the minimum
+//! stable compiler version is 1.69, the minimum supported version will not be
+//! increased past 1.66, three minor versions prior. Increasing the minimum
 //! supported compiler version is not considered a semver breaking change as
 //! long as doing so complies with this policy.
 //!
 //! [`tracing`]: https://crates.io/crates/tracing
 //! [`serde`]: https://crates.io/crates/serde
-#![doc(html_root_url = "https://docs.rs/tracing-serde/0.1.3")]
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/tokio-rs/tracing/master/assets/logo-type.png",
     issue_tracker_base_url = "https://github.com/tokio-rs/tracing/issues/"
@@ -168,7 +167,6 @@
     rust_2018_idioms,
     unreachable_pub,
     bad_style,
-    const_err,
     dead_code,
     improper_ctypes,
     non_shorthand_field_patterns,
@@ -565,6 +563,14 @@ impl<'a> AsSerde<'a> for Level {
     }
 }
 
+impl<'a> AsSerde<'a> for FieldSet {
+    type Serializable = SerializeFieldSet<'a>;
+
+    fn as_serde(&'a self) -> Self::Serializable {
+        SerializeFieldSet(self)
+    }
+}
+
 impl<'a> self::sealed::Sealed for Event<'a> {}
 
 impl<'a> self::sealed::Sealed for Attributes<'a> {}
@@ -576,6 +582,8 @@ impl self::sealed::Sealed for Level {}
 impl<'a> self::sealed::Sealed for Record<'a> {}
 
 impl<'a> self::sealed::Sealed for Metadata<'a> {}
+
+impl self::sealed::Sealed for FieldSet {}
 
 mod sealed {
     pub trait Sealed {}

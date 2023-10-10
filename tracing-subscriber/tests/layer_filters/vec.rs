@@ -1,5 +1,6 @@
 use super::*;
 use tracing::Subscriber;
+use tracing_mock::layer::{self, MockLayer};
 
 #[test]
 fn with_filters_unboxed() {
@@ -110,4 +111,11 @@ fn all_filtered_max_level_hint() {
     let subscriber = tracing_subscriber::registry().with(vec![warn, info, debug]);
 
     assert_eq!(subscriber.max_level_hint(), Some(LevelFilter::DEBUG));
+}
+
+#[test]
+fn empty_vec() {
+    // Just a None means everything is off
+    let subscriber = tracing_subscriber::registry().with(Vec::<MockLayer>::new());
+    assert_eq!(subscriber.max_level_hint(), Some(LevelFilter::OFF));
 }

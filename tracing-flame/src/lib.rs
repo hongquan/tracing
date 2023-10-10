@@ -10,7 +10,7 @@
 //! issues bottlenecks in an application. For more details, see Brendan Gregg's [post]
 //! on flamegraphs.
 //!
-//! *Compiler support: [requires `rustc` 1.49+][msrv]*
+//! *Compiler support: [requires `rustc` 1.56+][msrv]*
 //!
 //! [msrv]: #supported-rust-versions
 //! [post]: http://www.brendangregg.com/flamegraphs.html
@@ -95,14 +95,14 @@
 //! ## Supported Rust Versions
 //!
 //! Tracing is built against the latest stable release. The minimum supported
-//! version is 1.49. The current Tracing version is not guaranteed to build on
+//! version is 1.56. The current Tracing version is not guaranteed to build on
 //! Rust versions earlier than the minimum supported version.
 //!
 //! Tracing follows the same compiler support policies as the rest of the Tokio
 //! project. The current stable Rust compiler and the three most recent minor
 //! versions before it will always be supported. For example, if the current
-//! stable compiler version is 1.45, the minimum supported version will not be
-//! increased past 1.42, three minor versions prior. Increasing the minimum
+//! stable compiler version is 1.69, the minimum supported version will not be
+//! increased past 1.66, three minor versions prior. Increasing the minimum
 //! supported compiler version is not considered a semver breaking change as
 //! long as doing so complies with this policy.
 //!
@@ -117,7 +117,6 @@
     rust_2018_idioms,
     unreachable_pub,
     bad_style,
-    const_err,
     dead_code,
     improper_ctypes,
     non_shorthand_field_patterns,
@@ -134,10 +133,9 @@
     while_true
 )]
 
-pub use error::Error;
-
+use error::Error;
 use error::Kind;
-use lazy_static::lazy_static;
+use once_cell::sync::Lazy;
 use std::cell::Cell;
 use std::fmt;
 use std::fmt::Write as _;
@@ -158,9 +156,7 @@ use tracing_subscriber::Layer;
 
 mod error;
 
-lazy_static! {
-    static ref START: Instant = Instant::now();
-}
+static START: Lazy<Instant> = Lazy::new(Instant::now);
 
 thread_local! {
     static LAST_EVENT: Cell<Instant> = Cell::new(*START);

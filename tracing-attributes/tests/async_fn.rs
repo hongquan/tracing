@@ -1,5 +1,6 @@
 use tracing_mock::*;
 
+use std::convert::Infallible;
 use std::{future::Future, pin::Pin, sync::Arc};
 use tracing::subscriber::with_default;
 use tracing_attributes::instrument;
@@ -13,6 +14,7 @@ async fn test_async_fn(polls: usize) -> Result<(), ()> {
 
 // Reproduces a compile error when returning an `impl Trait` from an
 // instrumented async fn (see https://github.com/tokio-rs/tracing/issues/1615)
+#[allow(dead_code)] // this is just here to test whether it compiles.
 #[instrument]
 async fn test_ret_impl_trait(n: i32) -> Result<impl Iterator<Item = i32>, ()> {
     let n = n;
@@ -21,6 +23,7 @@ async fn test_ret_impl_trait(n: i32) -> Result<impl Iterator<Item = i32>, ()> {
 
 // Reproduces a compile error when returning an `impl Trait` from an
 // instrumented async fn (see https://github.com/tokio-rs/tracing/issues/1615)
+#[allow(dead_code)] // this is just here to test whether it compiles.
 #[instrument(err)]
 async fn test_ret_impl_trait_err(n: i32) -> Result<impl Iterator<Item = i32>, &'static str> {
     Ok((0..10).filter(move |x| *x < n))
@@ -28,6 +31,15 @@ async fn test_ret_impl_trait_err(n: i32) -> Result<impl Iterator<Item = i32>, &'
 
 #[instrument]
 async fn test_async_fn_empty() {}
+
+// Reproduces a compile error when an instrumented function body contains inner
+// attributes (https://github.com/tokio-rs/tracing/issues/2294).
+#[deny(unused_variables)]
+#[instrument]
+async fn repro_async_2294() {
+    #![allow(unused_variables)]
+    let i = 42;
+}
 
 // Reproduces https://github.com/tokio-rs/tracing/issues/1613
 #[instrument]
@@ -51,12 +63,32 @@ async fn repro_1613_2() {
     // else
 }
 
+// Reproduces https://github.com/tokio-rs/tracing/issues/1831
+#[allow(dead_code)] // this is just here to test whether it compiles.
+#[instrument]
+#[deny(unused_braces)]
+fn repro_1831() -> Pin<Box<dyn Future<Output = ()>>> {
+    Box::pin(async move {})
+}
+
+// This replicates the pattern used to implement async trait methods on nightly using the
+// `type_alias_impl_trait` feature
+#[allow(dead_code)] // this is just here to test whether it compiles.
+#[instrument(ret, err)]
+#[deny(unused_braces)]
+#[allow(clippy::manual_async_fn)]
+fn repro_1831_2() -> impl Future<Output = Result<(), Infallible>> {
+    async { Ok(()) }
+}
+
 #[test]
 fn async_fn_only_enters_for_polls() {
     let (subscriber, handle) = subscriber::mock()
         .new_span(span::mock().named("test_async_fn"))
         .enter(span::mock().named("test_async_fn"))
         .event(event::mock().with_fields(field::mock("awaiting").with_value(&true)))
+        .exit(span::mock().named("test_async_fn"))
+        .enter(span::mock().named("test_async_fn"))
         .exit(span::mock().named("test_async_fn"))
         .enter(span::mock().named("test_async_fn"))
         .exit(span::mock().named("test_async_fn"))
@@ -90,7 +122,11 @@ fn async_fn_nested() {
         .enter(span2.clone())
         .event(event::mock().with_fields(field::mock("nested").with_value(&true)))
         .exit(span2.clone())
+        .enter(span2.clone())
+        .exit(span2.clone())
         .drop_span(span2)
+        .exit(span.clone())
+        .enter(span.clone())
         .exit(span.clone())
         .drop_span(span)
         .done()
@@ -169,12 +205,18 @@ fn async_fn_with_async_trait() {
         .enter(span3.clone())
         .event(event::mock().with_fields(field::mock("val").with_value(&2u64)))
         .exit(span3.clone())
+        .enter(span3.clone())
+        .exit(span3.clone())
         .drop_span(span3)
         .new_span(span2.clone().with_field(field::mock("self")))
         .enter(span2.clone())
         .event(event::mock().with_fields(field::mock("val").with_value(&5u64)))
         .exit(span2.clone())
+        .enter(span2.clone())
+        .exit(span2.clone())
         .drop_span(span2)
+        .exit(span.clone())
+        .enter(span.clone())
         .exit(span.clone())
         .drop_span(span)
         .done()
@@ -224,6 +266,8 @@ fn async_fn_with_async_trait_and_fields_expressions() {
                     .and(field::mock("val2").with_value(&42u64)),
             ),
         )
+        .enter(span.clone())
+        .exit(span.clone())
         .enter(span.clone())
         .exit(span.clone())
         .drop_span(span)
@@ -301,7 +345,11 @@ fn async_fn_with_async_trait_and_fields_expressions_with_generic_parameter() {
                 .with_field(field::mock("Self").with_value(&std::any::type_name::<TestImpl>())),
         )
         .enter(span4.clone())
+        .exit(span4.clone())
+        .enter(span4.clone())
         .exit(span4)
+        .exit(span2.clone())
+        .enter(span2.clone())
         .exit(span2.clone())
         .drop_span(span2)
         .new_span(
@@ -309,6 +357,8 @@ fn async_fn_with_async_trait_and_fields_expressions_with_generic_parameter() {
                 .clone()
                 .with_field(field::mock("Self").with_value(&std::any::type_name::<TestImpl>())),
         )
+        .enter(span3.clone())
+        .exit(span3.clone())
         .enter(span3.clone())
         .exit(span3.clone())
         .drop_span(span3)
@@ -352,6 +402,8 @@ fn out_of_scope_fields() {
         .new_span(span.clone())
         .enter(span.clone())
         .exit(span.clone())
+        .enter(span.clone())
+        .exit(span.clone())
         .drop_span(span)
         .done()
         .run_with_handle();
@@ -387,6 +439,8 @@ fn manual_impl_future() {
         .enter(span.clone())
         .event(poll_event())
         .exit(span.clone())
+        .enter(span.clone())
+        .exit(span.clone())
         .drop_span(span)
         .done()
         .run_with_handle();
@@ -417,6 +471,8 @@ fn manual_box_pin() {
         .new_span(span.clone())
         .enter(span.clone())
         .event(poll_event())
+        .exit(span.clone())
+        .enter(span.clone())
         .exit(span.clone())
         .drop_span(span)
         .done()

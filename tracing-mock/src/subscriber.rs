@@ -1,6 +1,7 @@
 #![allow(missing_docs)]
 use super::{
     event::MockEvent,
+    expectation::Expect,
     field as mock_field,
     span::{MockSpan, NewSpan},
 };
@@ -20,21 +21,10 @@ use tracing::{
     Event, Metadata, Subscriber,
 };
 
-#[derive(Debug, Eq, PartialEq)]
-pub enum Expect {
-    Event(MockEvent),
-    Enter(MockSpan),
-    Exit(MockSpan),
-    CloneSpan(MockSpan),
-    DropSpan(MockSpan),
-    Visit(MockSpan, mock_field::Expect),
-    NewSpan(NewSpan),
-    Nothing,
-}
-
 struct SpanState {
     name: &'static str,
     refs: usize,
+    meta: &'static Metadata<'static>,
 }
 
 struct Running<F: Fn(&Metadata<'_>) -> bool> {
@@ -94,6 +84,12 @@ where
 
     pub fn enter(mut self, span: MockSpan) -> Self {
         self.expected.push_back(Expect::Enter(span));
+        self
+    }
+
+    pub fn follows_from(mut self, consequence: MockSpan, cause: MockSpan) -> Self {
+        self.expected
+            .push_back(Expect::FollowsFrom { consequence, cause });
         self
     }
 
@@ -198,7 +194,9 @@ where
             Interest::never()
         }
     }
+
     fn max_level_hint(&self) -> Option<LevelFilter> {
+        println!("[{}] max_level_hint ->  {:?}", self.name, self.max_level);
         self.max_level
     }
 
@@ -248,8 +246,37 @@ where
         }
     }
 
-    fn record_follows_from(&self, _span: &Id, _follows: &Id) {
-        // TODO: it should be possible to expect spans to follow from other spans
+    fn record_follows_from(&self, consequence_id: &Id, cause_id: &Id) {
+        let spans = self.spans.lock().unwrap();
+        if let Some(consequence_span) = spans.get(consequence_id) {
+            if let Some(cause_span) = spans.get(cause_id) {
+                println!(
+                    "[{}] record_follows_from: {} (id={:?}) follows {} (id={:?})",
+                    self.name, consequence_span.name, consequence_id, cause_span.name, cause_id,
+                );
+                match self.expected.lock().unwrap().pop_front() {
+                    None => {}
+                    Some(Expect::FollowsFrom {
+                        consequence: ref expected_consequence,
+                        cause: ref expected_cause,
+                    }) => {
+                        if let Some(name) = expected_consequence.name() {
+                            assert_eq!(name, consequence_span.name);
+                        }
+                        if let Some(name) = expected_cause.name() {
+                            assert_eq!(name, cause_span.name);
+                        }
+                    }
+                    Some(ex) => ex.bad(
+                        &self.name,
+                        format_args!(
+                            "consequence {:?} followed cause {:?}",
+                            consequence_span.name, cause_span.name
+                        ),
+                    ),
+                }
+            }
+        };
     }
 
     fn new_span(&self, span: &Attributes<'_>) -> Id {
@@ -282,6 +309,7 @@ where
             id.clone(),
             SpanState {
                 name: meta.name(),
+                meta,
                 refs: 1,
             },
         );
@@ -413,10 +441,22 @@ where
             }
         }
     }
+
+    fn current_span(&self) -> tracing_core::span::Current {
+        let stack = self.current.lock().unwrap();
+        match stack.last() {
+            Some(id) => {
+                let spans = self.spans.lock().unwrap();
+                let state = spans.get(id).expect("state for current span");
+                tracing_core::span::Current::new(id.clone(), state.meta)
+            }
+            None => tracing_core::span::Current::none(),
+        }
+    }
 }
 
 impl MockHandle {
-    pub fn new(expected: Arc<Mutex<VecDeque<Expect>>>, name: String) -> Self {
+    pub(crate) fn new(expected: Arc<Mutex<VecDeque<Expect>>>, name: String) -> Self {
         Self(expected, name)
     }
 
@@ -433,12 +473,16 @@ impl MockHandle {
 }
 
 impl Expect {
-    pub fn bad(&self, name: impl AsRef<str>, what: fmt::Arguments<'_>) {
+    pub(crate) fn bad(&self, name: impl AsRef<str>, what: fmt::Arguments<'_>) {
         let name = name.as_ref();
         match self {
             Expect::Event(e) => panic!(
                 "\n[{}] expected event {}\n[{}] but instead {}",
                 name, e, name, what,
+            ),
+            Expect::FollowsFrom { consequence, cause } => panic!(
+                "\n[{}] expected consequence {} to follow cause {} but instead {}",
+                name, consequence, cause, what,
             ),
             Expect::Enter(e) => panic!(
                 "\n[{}] expected to enter {}\n[{}] but instead {}",

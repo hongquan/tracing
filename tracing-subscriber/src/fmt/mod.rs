@@ -16,7 +16,7 @@
 //! tracing-subscriber = "0.3"
 //! ```
 //!
-//! *Compiler support: [requires `rustc` 1.49+][msrv]*
+//! *Compiler support: [requires `rustc` 1.56+][msrv]*
 //!
 //! [msrv]: super#supported-rust-versions
 //!
@@ -243,6 +243,7 @@ pub type Formatter<
 /// Configures and constructs `Subscriber`s.
 #[cfg_attr(docsrs, doc(cfg(all(feature = "fmt", feature = "std"))))]
 #[derive(Debug)]
+#[must_use]
 pub struct SubscriberBuilder<
     N = format::DefaultFields,
     E = format::Format<format::Full>,
@@ -398,6 +399,11 @@ where
     }
 
     #[inline]
+    fn event_enabled(&self, event: &Event<'_>) -> bool {
+        self.inner.event_enabled(event)
+    }
+
+    #[inline]
     fn event(&self, event: &Event<'_>) {
         self.inner.event(event);
     }
@@ -461,6 +467,7 @@ impl Default for SubscriberBuilder {
             filter: Subscriber::DEFAULT_MAX_LEVEL,
             inner: Default::default(),
         }
+        .log_internal_errors(true)
     }
 }
 
@@ -605,12 +612,47 @@ where
         }
     }
 
-    /// Enable ANSI encoding for formatted events.
+    /// Sets whether or not the formatter emits ANSI terminal escape codes
+    /// for colors and other text formatting.
+    ///
+    /// Enabling ANSI escapes (calling `with_ansi(true)`) requires the "ansi"
+    /// crate feature flag. Calling `with_ansi(true)` without the "ansi"
+    /// feature flag enabled will panic if debug assertions are enabled, or
+    /// print a warning otherwise.
+    ///
+    /// This method itself is still available without the feature flag. This
+    /// is to allow ANSI escape codes to be explicitly *disabled* without
+    /// having to opt-in to the dependencies required to emit ANSI formatting.
+    /// This way, code which constructs a formatter that should never emit
+    /// ANSI escape codes can ensure that they are not used, regardless of
+    /// whether or not other crates in the dependency graph enable the "ansi"
+    /// feature flag.
     #[cfg(feature = "ansi")]
     #[cfg_attr(docsrs, doc(cfg(feature = "ansi")))]
     pub fn with_ansi(self, ansi: bool) -> SubscriberBuilder<N, format::Format<L, T>, F, W> {
         SubscriberBuilder {
             inner: self.inner.with_ansi(ansi),
+            ..self
+        }
+    }
+
+    /// Sets whether to write errors from [`FormatEvent`] to the writer.
+    /// Defaults to true.
+    ///
+    /// By default, `fmt::Layer` will write any `FormatEvent`-internal errors to
+    /// the writer. These errors are unlikely and will only occur if there is a
+    /// bug in the `FormatEvent` implementation or its dependencies.
+    ///
+    /// If writing to the writer fails, the error message is printed to stderr
+    /// as a fallback.
+    ///
+    /// [`FormatEvent`]: crate::fmt::FormatEvent
+    pub fn log_internal_errors(
+        self,
+        log_internal_errors: bool,
+    ) -> SubscriberBuilder<N, format::Format<L, T>, F, W> {
+        SubscriberBuilder {
+            inner: self.inner.log_internal_errors(log_internal_errors),
             ..self
         }
     }
@@ -666,7 +708,7 @@ where
     }
 
     /// Sets whether or not the [name] of the current thread is displayed
-    /// when formatting events
+    /// when formatting events.
     ///
     /// [name]: std::thread#naming-threads
     pub fn with_thread_names(
@@ -680,7 +722,7 @@ where
     }
 
     /// Sets whether or not the [thread ID] of the current thread is displayed
-    /// when formatting events
+    /// when formatting events.
     ///
     /// [thread ID]: std::thread::ThreadId
     pub fn with_thread_ids(
@@ -1180,13 +1222,19 @@ pub fn try_init() -> Result<(), Box<dyn Error + Send + Sync + 'static>> {
 /// Install a global tracing subscriber that listens for events and
 /// filters based on the value of the [`RUST_LOG` environment variable].
 ///
+/// The configuration of the subscriber initialized by this function
+/// depends on what [feature flags](crate#feature-flags) are enabled.
+///
 /// If the `tracing-log` feature is enabled, this will also install
 /// the LogTracer to convert `Log` records into `tracing` `Event`s.
 ///
-/// This is shorthand for
+/// If the `env-filter` feature is enabled, this is shorthand for
 ///
 /// ```rust
-/// tracing_subscriber::fmt().init()
+/// # use tracing_subscriber::EnvFilter;
+/// tracing_subscriber::fmt()
+///     .with_env_filter(EnvFilter::from_default_env())
+///     .init();
 /// ```
 ///
 /// # Panics

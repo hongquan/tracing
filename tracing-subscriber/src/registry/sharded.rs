@@ -275,6 +275,13 @@ impl Subscriber for Registry {
 
     fn record_follows_from(&self, _span: &span::Id, _follows: &span::Id) {}
 
+    fn event_enabled(&self, _event: &Event<'_>) -> bool {
+        if self.has_per_layer_filters() {
+            return FilterState::event_enabled();
+        }
+        true
+    }
+
     /// This is intentionally not implemented, as recording events
     /// is the responsibility of layers atop of this registry.
     fn event(&self, _: &Event<'_>) {}
@@ -415,7 +422,7 @@ impl<'a> SpanData<'a> for Data<'a> {
     }
 
     fn metadata(&self) -> &'static Metadata<'static> {
-        (*self).inner.metadata
+        self.inner.metadata
     }
 
     fn parent(&self) -> Option<&Id> {
@@ -895,7 +902,7 @@ mod tests {
 
             drop(span3);
 
-            state.assert_closed_in_order(&["child", "parent", "grandparent"]);
+            state.assert_closed_in_order(["child", "parent", "grandparent"]);
         });
     }
 }

@@ -241,7 +241,7 @@ my_future
 `Future::instrument` attaches a span to the future, ensuring that the span's lifetime
 is as long as the future's.
 
-Under the hood, the [`#[instrument]`][instrument] macro performs same the explicit span
+Under the hood, the [`#[instrument]`][instrument] macro performs the same explicit span
 attachment that `Future::instrument` does.
 
 [std-future]: https://doc.rust-lang.org/stable/std/future/trait.Future.html
@@ -252,14 +252,14 @@ attachment that `Future::instrument` does.
 ## Supported Rust Versions
 
 Tracing is built against the latest stable release. The minimum supported
-version is 1.49. The current Tracing version is not guaranteed to build on Rust
+version is 1.56. The current Tracing version is not guaranteed to build on Rust
 versions earlier than the minimum supported version.
 
 Tracing follows the same compiler support policies as the rest of the Tokio
 project. The current stable Rust compiler and the three most recent minor
 versions before it will always be supported. For example, if the current stable
-compiler version is 1.45, the minimum supported version will not be increased
-past 1.42, three minor versions prior. Increasing the minimum supported compiler
+compiler version is 1.69, the minimum supported version will not be increased
+past 1.66, three minor versions prior. Increasing the minimum supported compiler
 version is not considered a semver breaking change as long as doing so complies
 with this policy.
 
@@ -305,11 +305,6 @@ The crates included as part of Tracing are:
 
 * [`tracing-log`]: Compatibility with the `log` crate (unstable).
 
-* [`tracing-opentelemetry`]: Provides a layer that connects spans from multiple
-  systems into a trace and emits them to [OpenTelemetry]-compatible distributed
-  tracing systems for processing and visualization.
-  ([crates.io][otel-crates]|[docs][otel-docs])
-
 * [`tracing-serde`]: A compatibility layer for serializing trace data with
     `serde` (unstable).
 
@@ -337,7 +332,6 @@ The crates included as part of Tracing are:
 [`tracing-macros`]: tracing-macros
 [`tracing-attributes`]: tracing-attributes
 [`tracing-log`]: tracing-log
-[`tracing-opentelemetry`]: tracing-opentelemetry
 [`tracing-serde`]: tracing-serde
 [`tracing-subscriber`]: tracing-subscriber
 [`tracing-tower`]: tracing-tower
@@ -390,6 +384,8 @@ are not maintained by the `tokio` project. These include:
   _inside_ of functions.
 - [`tracing-wasm`] provides a `Subscriber`/`Layer` implementation that reports
   events and spans via browser `console.log` and [User Timing API (`window.performance`)].
+- [`tracing-web`] provides a layer implementation of level-aware logging of events
+  to web browsers' `console.*` and span events to the [User Timing API (`window.performance`)].
 - [`test-log`] takes care of initializing `tracing` for tests, based on
   environment variables with an `env_logger` compatible syntax.
 - [`tracing-unwrap`] provides convenience methods to report failed unwraps on `Result` or `Option` types to a `Subscriber`.
@@ -402,6 +398,9 @@ are not maintained by the `tokio` project. These include:
 - [`tracing-forest`] provides a subscriber that preserves contextual coherence by 
   grouping together logs from the same spans during writing.
 - [`tracing-loki`] provides a layer for shipping logs to [Grafana Loki].
+- [`tracing-logfmt`] provides a layer that formats events and spans into the logfmt format.
+- [`tracing-chrome`] provides a layer that exports trace data that can be viewed in `chrome://tracing`.
+- [`reqwest-tracing`] provides a middleware to trace [`reqwest`] HTTP requests.
 
 (if you're the maintainer of a `tracing` ecosystem crate not in this list,
 please let us know!)
@@ -423,6 +422,7 @@ please let us know!)
 [`color-eyre`]: https://docs.rs/color-eyre
 [`spandoc`]: https://docs.rs/spandoc
 [`tracing-wasm`]: https://docs.rs/tracing-wasm
+[`tracing-web`]: https://crates.io/crates/tracing-web
 [`test-log`]: https://crates.io/crates/test-log
 [User Timing API (`window.performance`)]: https://developer.mozilla.org/en-US/docs/Web/API/User_Timing_API
 [`tracing-unwrap`]: https://docs.rs/tracing-unwrap
@@ -439,6 +439,10 @@ please let us know!)
 [`tracing-forest`]: https://crates.io/crates/tracing-forest
 [`tracing-loki`]: https://crates.io/crates/tracing-loki
 [Grafana Loki]: https://grafana.com/oss/loki/
+[`tracing-logfmt`]: https://crates.io/crates/tracing-logfmt
+[`tracing-chrome`]: https://crates.io/crates/tracing-chrome
+[`reqwest-tracing`]: https://crates.io/crates/reqwest-tracing
+[`reqwest`]: https://crates.io/crates/reqwest
 
 **Note:** that some of the ecosystem crates are currently unreleased and
 undergoing active development. They may be less stable than `tracing` and
